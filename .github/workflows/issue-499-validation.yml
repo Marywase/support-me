@@ -1,0 +1,89 @@
+name: Issue 499 validation
+on:
+  push:
+    branches: [validation/499-public-creator-20261125]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+        shell: bash
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/supportme?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Targeted creator route tests
+        run: npm test -- --runInBand src/__tests__/routes/creators.test.ts
+      - name: Prove original route leaks private fields
+        run: |
+          cp src/routes/creators.ts /tmp/creators-current.ts
+          trap 'cp /tmp/creators-current.ts src/routes/creators.ts' EXIT
+          git show 5486be8347f34c964e627b2a4f967041c8cafa7b:backend/src/routes/creators.ts > src/routes/creators.ts
+          set +e
+          npm test -- --runInBand src/__tests__/routes/creators.test.ts -t 'allowlists public' > /tmp/baseline.log 2>&1
+          result=$?
+          set -e
+          cat /tmp/baseline.log
+          test "$result" -ne 0
+          grep -F '4 failed' /tmp/baseline.log
+      - name: Backend lint
+        continue-on-error: true
+        run: npm run lint
+      - name: Backend build
+        run: npm run build
+      - name: Backend full test suite
+        run: npm test -- --runInBand
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm install -g npm@11
+      - run: npm ci
+      - name: Frontend type check
+        run: npx tsc --noEmit
+      - name: Translation parity
+        run: npm run check:i18n
+      - name: Frontend lint
+        continue-on-error: true
+        run: npm run lint
+      - name: Frontend full test suite
+        run: npm test
+      - name: Frontend production build
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Public profile browser tests
+        run: npx playwright test e2e/creator-profile.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-playwright-report
+          path: frontend/playwright-report/

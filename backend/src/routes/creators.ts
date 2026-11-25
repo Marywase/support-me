@@ -23,6 +23,7 @@ import { challenges } from "./auth";
 import { verifyWalletOwnership } from "../services/walletProof";
 import { TtlCache } from "../services/ttlCache";
 import { toAmount, MoneyValue } from "../lib/money";
+import { toPublicCreator } from "../lib/publicCreator";
 import { getCreatorStats } from "../services/creatorStats";
 
 const router = Router();
@@ -182,7 +183,10 @@ router.get(
     const total = await prisma.creator.count({ where });
 
     return res.json({
-      items: creators.map(formatCreator),
+      items: creators.map((creator) => ({
+        ...toPublicCreator(creator),
+        _count: { donations: creator._count.donations },
+      })),
       pagination: {
         page,
         limit,
@@ -333,7 +337,7 @@ router.get(
         return profile;
       });
 
-      return res.json(formatCreator(creator));
+      return res.json(toPublicCreator(creator));
     } catch (error) {
       // If cache fails, fall back to direct DB read
       if (error instanceof NotFoundError) {
@@ -347,7 +351,7 @@ router.get(
         throw new NotFoundError("Creator not found");
       }
 
-      return res.json(formatCreator(creator));
+      return res.json(toPublicCreator(creator));
     }
   })
 );
